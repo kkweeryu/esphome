@@ -1,0 +1,138 @@
+# secrets: secrets.yaml
+
+substitutions:
+  device_name: "esp32c3m-ex1"
+  friendly_name: "C3 mini Example 1"
+
+  esp32_platform: "ESP32C3"
+  esp32_board: "esp32-c3-devkitm-1"
+  esp32_flash_size: "4MB"
+
+  esp32_wifi_enable_on_boot: "true"
+
+  status_led_pin: "GPIO8"
+
+packages:
+  remote_base: !include esp32-base.yaml
+
+logger:
+  level: DEBUG # 로그 레벨을 DEBUG(또는 최고 수준인 VERY_VERBOSE)로 설정
+  hardware_uart: USB_SERIAL_JTAG # idf
+  # hardware_uart: USB_CDC # arduino
+  baud_rate: 115200 # 통신 속도 설정 (기본값 115200)
+
+# 상태 LED 설정
+status_led:
+  pin:
+    number: ${status_led_pin}
+    inverted: true
+
+# 로그 확인용 웹 인터페이스
+web_server:
+  port: 80
+
+script:
+  - id: run_on_boot
+    mode: single
+    then:
+      - logger.log:
+          format: "[%s] on boot actions start."
+          args: [ '"${device_name}"' ]
+      - delay: 1s
+      - logger.log: "finish on boot actions."
+
+# Sagnae test
+external_components:
+  - source: ./external_components
+
+sagnae:
+  id: sagnae_id
+
+sensor:
+  - platform: wifi_signal
+    name: wifi signal
+#    id: $(device_name)_wifi_signal
+    update_interval: 60s
+  - platform: internal_temperature
+    name: "ESP32 C3 temperature"
+    id: "esp32_c3_temp"
+
+switch:
+  - platform: restart
+    name: restart
+  - platform: safe_mode
+    name: Restart Safemode
+  - platform: sagnae
+    test:
+      name: test switch
+
+text_sensor:
+  - platform: version
+    name: "Version"
+  - platform: wifi_info
+    ip_address:
+      name: "IP"
+      icon: mdi:ip-outline
+    mac_address:
+      name: "MAC"
+      icon: mdi:barcode-scan
+    ssid:
+      name: "SSID"
+      icon: mdi:wifi-lock
+    bssid:
+      name: "BSSID"
+      icon: mdi:router-wireless
+  - platform: sagnae
+    test:
+      name: test text_sensor
+
+button:
+  - platform: sagnae
+    test:
+      name: test button
+
+number:
+  - platform: sagnae
+    test:
+      name: test number
+
+select:
+  - platform: sagnae
+    test:
+      name: test select
+  - platform: template
+    name: basic select
+    id: test_select
+    optimistic: true
+    options:
+      - "test 1"
+      - "test 2"
+      - "test 3"
+    # initial_option: "test 3"
+    on_value:
+      then:
+        - lambda: |-
+            uint8_t index;
+            if(x == "test 1"){
+              ESP_LOGD("custom", "test 1 selected");
+              index = 0;
+            } else if(x == "test 2") {
+              index = 1;
+              ESP_LOGD("custom", "test 2 selected");
+            } else {
+              index = 2;
+              ESP_LOGD("custom", "else selected");
+            }
+
+espnow:
+  peers:
+    - D8:3B:DA:A5:F7:3C
+
+interval:
+  - interval: 10s
+    then:
+      - espnow.send:
+          address: D8:3B:DA:A5:F7:3C
+          data: !lambda |-
+            std::string full_msg = "HELLO_S3_FROM_C3 " + std::to_string(millis());
+            return std::vector<uint8_t>(full_msg.begin(), full_msg.end());

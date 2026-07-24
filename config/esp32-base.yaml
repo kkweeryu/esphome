@@ -1,0 +1,57 @@
+# substitutions:
+#   esp32_platform: "esp32"
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+
+  on_boot:
+    - priority: 600.0
+      then:
+        # 메인 파일에 정의될 스크립트를 호출합니다.
+        - script.execute: run_on_boot
+
+esp32:
+  board: ${esp32_board}
+  variant: ${esp32_platform}
+  flash_size: ${esp32_flash_size}
+  framework:
+    type: esp-idf
+    version: recommended
+    # type: arduino
+    # version: latest
+
+# 무선 업데이트(OTA) 활성화 - secrets.yaml에서 참조
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+# Home Assistant 연동을 위한 API - secrets.yaml에서 참조
+api:
+  encryption:
+    key: !secret api_encryption_key
+  reboot_timeout: 0s
+
+# Wi-Fi 설정 - secrets.yaml에서 참조
+wifi:
+  networks:
+    - ssid: !secret wifi_ssid_office
+      password: !secret wifi_password_office
+    - ssid: !secret wifi_ssid_home
+      password: !secret wifi_password_home
+    - ssid: !secret wifi_ssid_nongmak
+      password: !secret wifi_password_nongmak
+  power_save_mode: LIGHT    #NONE : # 절전 모드를 완전히 꺼서 연결 안정성 확보
+  fast_connect: true
+  enable_on_boot: ${esp32_wifi_enable_on_boot}
+  # use_address: "100.105.131.34"
+  # Wi-Fi 끊김 대비 Fallback AP 설정
+  ap:
+    ssid: "${device_name}-fallback"
+    password: !secret fallback_ap_password
+
+# 캡티브 포탈 및 로그 설정
+captive_portal:
+
+# logger:
+#   level: INFO

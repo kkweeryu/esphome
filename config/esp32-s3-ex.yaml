@@ -1,0 +1,378 @@
+substitutions:
+  device_name: "esp32-s3-ex"
+  friendly_name: "S3 Example"
+
+  esp32_platform: "ESP32S3"
+  esp32_board: "esp32-s3-devkitc-1"
+  esp32_flash_size: "16MB"
+
+  esp32_wifi_enable_on_boot: "true"
+
+  dev_name: "S3 Example"
+  id_name: "s3_ex"
+
+packages:
+  remote_base: !include esp32-base.yaml
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+  level: DEBUG # 로그 레벨을 DEBUG(또는 최고 수준인 VERY_VERBOSE)로 설정
+  hardware_uart: USB_SERIAL_JTAG # idf
+  # hardware_uart: USB_CDC # arduino
+  baud_rate: 115200 # 통신 속도 설정 (기본값 115200)
+
+# 로그 확인용 웹 인터페이스
+web_server:
+  port: 80
+
+
+# external_components:
+#   - source: ./external_components
+#   - source:
+#       type: git
+#       url: https://github.com/Csontikka/esphome-tailscale.git
+#       ref: main
+#     components: [tailscale]
+#     refresh: 0s
+
+# tailscale:
+#   auth_key: tskey-auth-kevqDE8eqA11CNTRL-n7z9NoUJ376m6Uvzq1Ko76QSH1Azcn99
+#   hostname: esp23-s3-tail
+#   # accept_routes: true
+
+mqtt:
+  broker: 192.168.0.21
+  # broker: 100.70.142.105
+  # broker: 100.69.176.24
+  port: 1883
+  log_topic: null
+  enable_on_boot: true
+  on_json_message:
+    topic: zigbee2mqtt-office/desk_office
+    then:
+      - lambda: |-
+          if (x["state"].is<const char*>()) {
+            std::string state = x["state"].as<const char*>();
+            if(state == "ON") {
+              id(zigbee_office_switch).publish_state(true);
+            } else if(state == "OFF") {
+              id(zigbee_office_switch).publish_state(false);
+            }
+          }
+
+script:
+  - id: run_on_boot
+    mode: single
+    then:
+    - lambda: |-
+        ESP_LOGD("boot", "!!! on boot start");
+    - light.turn_on:
+        id: rgb_light
+        red: 0%
+        blue: 50%
+        green: 0%
+        brightness: 60%
+        effect: pulse
+#    - delay: 30s
+    - wifi.enable
+    - wait_until:
+        condition:
+          wifi.connected:
+    - lambda: |-
+        ESP_LOGD("boot", "!!! on boot wifi connected");
+    - mqtt.enable
+    - wait_until:
+        condition:
+          mqtt.connected:
+    - lambda: |-
+        ESP_LOGD("boot", "!!! on boot mqtt connected");
+    - light.turn_on:
+        id: rgb_light
+        red: 0%
+        blue: 0%
+        green: 50%
+        brightness: 60%
+        effect: pulse
+    - delay: 3s
+    - light.turn_off:
+        id: rgb_light
+
+# Sagnae test
+external_components:
+  - source: ./external_components
+
+light:
+  # - platform: status_led
+  #   name: ${dev_name} Light
+  #   pin: GPIO48
+  - platform: esp32_rmt_led_strip
+    id: rgb_light
+    rgb_order: GRB
+    pin: GPIO48
+    num_leds: 1
+    # rmt_channel: 0
+    chipset: ws2812
+    name: "RGB Light"
+    effects:
+      - pulse:
+          transition_length: 550ms
+          update_interval: 550ms
+      - flicker:
+      - addressable_fireworks:
+          use_random_color: true
+      - addressable_rainbow:
+
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO0
+      mode: INPUT
+    #      inverted: true  # 필요에 따라 논리를 반전시킵니다.
+    name: ${dev_name} boot input
+  - platform: status
+    name: ${dev_name} Status
+
+sensor:
+  - platform: wifi_signal
+    name: ${dev_name} wifi signal
+    id: ${id_name}_wifi_signal
+    update_interval: 60s
+  - platform: internal_temperature
+    name: "ESP32 S3 temperature"
+    id: "esp32_s3_temp"
+  - platform: homeassistant
+    name: current temp
+    id: current_temp
+    entity_id: sensor.hyeonjaeondo
+    internal: false
+    on_value:
+      then:
+        - lambda: |-
+            ESP_LOGD("weather", "updated temp : %f", x);
+            if (abs(id(prev_temp) - x) >= 1.0) {
+              id(pvvx_display_update).turn_on();
+              id(prev_temp) = x;
+            }
+        # - switch.turn_on: pvvx_display_update
+  - platform: homeassistant
+    name: current humid
+    id: current_humid
+    entity_id: sensor.hyeonjaeseubdo
+    internal: false
+  - platform: homeassistant
+    name: rain percent
+    id: rain_percent
+    entity_id: sensor.gangsuhwagryul
+    internal: false
+
+switch:
+  - platform: restart
+    name: ${dev_name} restart
+  - platform: safe_mode
+    name: ${dev_name} Restart Safemode
+  - platform: sagnae
+    test:
+      name: test switch
+  - platform: template
+    name: zigbee office switch
+    id: zigbee_office_switch
+    optimistic: true
+    turn_on_action:
+      - mqtt.publish:
+          topic: "zigbee2mqtt-office/desk_office/set"
+          payload: "ON"
+
+    turn_off_action:
+      - mqtt.publish:
+          topic: "zigbee2mqtt-office/desk_office/set"
+          payload: "OFF"
+  - platform: template
+    name: zigbee office switch 1
+    id: zigbee_office_switch_1
+    optimistic: true
+    turn_on_action:
+      - homeassistant.action:
+          action: switch.toggle
+          data:
+            entity_id: switch.office_desk_3
+    turn_off_action:
+      - homeassistant.action:
+          action: switch.toggle
+          data:
+            entity_id: switch.office_desk_3
+  #blooth 수동 pairing 스위치
+  - platform: ble_client
+    ble_client_id: pvvx_ble_display
+    name: PVVX_BLEPairing
+    id: pvvx_blepairing
+    #internal: true
+    restore_mode: ALWAYS_OFF
+
+  - platform: template
+    name: PVVX Display update
+    id: pvvx_display_update
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    turn_on_action:
+      then:
+        - switch.turn_on: pvvx_blepairing
+
+# time:
+#   - platform: homeassistant
+#     id: ${id_name}_time
+#     timezone: Asia/Seoul
+
+text_sensor:
+  - platform: version
+    name: "${dev_name} Version"
+  - platform: wifi_info
+    ip_address:
+      name: "${dev_name} IP"
+      icon: mdi:ip-outline
+    mac_address:
+      name: "${dev_name} MAC"
+      icon: mdi:barcode-scan
+    ssid:
+      name: "${dev_name} SSID"
+      icon: mdi:wifi-lock
+    bssid:
+      name: "${dev_name} BSSID"
+      icon: mdi:router-wireless
+  - platform: sagnae
+    test:
+      name: test text_sensor
+  - platform: homeassistant
+    name: current weather
+    id: current_weather
+    internal: false
+    entity_id: sensor.hyeonjaenalssi
+    filters:
+      - substitute:
+          - "맑음 -> sunny"
+          - "흐림 -> cloud"
+          - "비 -> rain"
+          - "눈 -> snow"
+    on_value:
+      then:
+        - lambda: |-
+            ESP_LOGD("weather", "updated weather : %s", x.c_str());
+        - switch.turn_on: pvvx_display_update
+  - platform: template
+    name: "Received ESP-NOW Data"
+    id: received_data_sensor
+
+sagnae:
+  id: sagnae_id
+
+# sagnae_test:
+#   id: sagnae_test_id
+
+button:
+  - platform: sagnae
+    test:
+      name: test button
+
+number:
+  - platform: sagnae
+    test:
+      name: test number
+
+select:
+  - platform: sagnae
+    test:
+      name: test select
+  - platform: template
+    name: basic select
+    id: test_select
+    optimistic: true
+    options:
+      - "test 1"
+      - "test 2"
+      - "test 3"
+    # initial_option: "test 3"
+    on_value:
+      then:
+        - lambda: |-
+            uint8_t index;
+            if(x == "test 1"){
+              ESP_LOGD("custom", "test 1 selected");
+              index = 0;
+            } else if(x == "test 2") {
+              index = 1;
+              ESP_LOGD("custom", "test 2 selected");
+            } else {
+              index = 2;
+              ESP_LOGD("custom", "else selected");
+            }
+              id(sagnae_id).set_test_select(x, index);
+
+esp32_ble_tracker:
+
+ble_client:
+  - mac_address: A4:C1:38:46:F7:E5
+    id: pvvx_ble_display
+    on_connect:
+      then:
+        - delay: 1s
+        - if:
+            condition:
+              switch.is_on: pvvx_display_update
+            then:
+              - component.update: pvvx_display
+              - switch.turn_off: pvvx_display_update
+        - lambda: |-
+            ESP_LOGD("weather", "current weather temp : %f", id(current_temp).state);
+
+display:
+  - platform: pvvx_mithermometer
+    id: pvvx_display
+    ble_client_id: pvvx_ble_display
+    update_interval: 12h
+    validity_period: 65535s
+    lambda: |-
+      float temp = id(current_temp).state;
+      float humid = id(current_humid).state;
+      float rain = id(rain_percent).state;
+      std::string weather = id(current_weather).state;
+      it.print_bignum(temp);
+      it.print_unit(pvvx_mithermometer::UNIT_DEG_C);
+      it.print_smallnum(rain);
+      it.print_percent(true);
+      if (weather == "rain") {
+        it.print_sad(true);
+      } else if (weather == "snow") {
+        it.print_sad(true);
+        it.print_happy(true);
+      } else {
+        it.print_happy(true);
+      }
+      it.print_bracket(true);
+      it.print_battery(true);
+
+globals:
+  - id: prev_temp
+    type: float
+    restore_value: no
+    initial_value: "0.0"
+
+espnow:
+  # peers:
+  #   - 11:22:33:44:55:66
+  auto_add_peer: true
+  # 메시지를 받았을 때 실행할 자동화(트리거)
+  on_receive:
+    then:
+      - lambda: |-
+          char des_mac[MAC_ADDRESS_PRETTY_BUFFER_SIZE];
+          char src_mac[MAC_ADDRESS_PRETTY_BUFFER_SIZE];
+          char hex[256];
+          ESP_LOGD("espnow", "Received from %s to %s: %s RSSI: %ddBm",
+                 format_mac_addr_upper(info.src_addr, src_mac),
+                 format_mac_addr_upper(info.des_addr, des_mac),
+                 format_hex_pretty_to(hex, data, size),
+                 info.rx_ctrl->rssi);
+          std::string received_str((const char*)data, size);
+          id(received_data_sensor).publish_state(received_str);
