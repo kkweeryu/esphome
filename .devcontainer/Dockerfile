@@ -12,6 +12,7 @@ RUN apt update \
 RUN pip install uv
 
 RUN useradd esphome -m
+RUN usermod -a -G dialout esphome
 
 USER esphome
 ENV VIRTUAL_ENV=/home/esphome/.local/esphome-venv
